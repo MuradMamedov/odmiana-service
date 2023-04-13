@@ -3,36 +3,12 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"wiki-parser/data"
 
 	_ "github.com/go-sql-driver/mysql"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
-
-type Text struct {
-	OldId   uint `gorm:"primaryKey"`
-	OldText string
-}
-type Tabler interface {
-	TableName() string
-}
-
-// TableName overrides the table name used by User to `profiles`
-func (Text) TableName() string {
-	return "text"
-}
-
-type Odmiana struct {
-	PageId    int    `gorm:"primaryKey;autoIncrement:false"`
-	Przypadek string `gorm:"primaryKey"`
-	Liczba    string
-	Text      string
-}
-
-// TableName overrides the table name used by User to `profiles`
-func (Odmiana) TableName() string {
-	return "odmiany"
-}
 
 func main() {
 	dsn := "root:Test1234!@tcp(127.0.0.1:3306)/wikidb?charset=utf8mb4&parseTime=True&loc=Local"
@@ -41,12 +17,13 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	var tag Text
+
+	var tag data.Text
 	db.First(&tag, 445)
 	writeData(&tag, db)
 }
 
-func writeData(tag *Text, db *gorm.DB) {
+func writeData(tag *data.Text, db *gorm.DB) {
 	r := regexp.MustCompile(`\|(\S+)\s((?:\S)+)\s=\s([^|}\\]+)`)
 	matches := r.FindAllStringSubmatch(tag.OldText, -1) // matches is [][]string
 	i := 14
@@ -57,7 +34,7 @@ func writeData(tag *Text, db *gorm.DB) {
 		fmt.Printf(
 			"%s, %s, %s\n", match[1], match[2], match[3])
 
-		odmiana := Odmiana{
+		odmiana := data.Odmiana{
 			PageId:    int(tag.OldId),
 			Przypadek: match[1],
 			Liczba:    match[2],
