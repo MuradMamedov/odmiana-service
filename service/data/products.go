@@ -38,10 +38,7 @@ func validateSKU(fl validator.FieldLevel) bool {
 	// sku is of formate abc-abcd-dfsdf
 	re := regexp.MustCompile(`[a-z]+-[a-z]+-[a-z]+`)
 	matches := re.FindAllString(fl.Field().String(), -1)
-	if len(matches) != 1 {
-		return false
-	}
-	return true
+	return len(matches) == 1
 }
 
 // Products is a collection of Product
