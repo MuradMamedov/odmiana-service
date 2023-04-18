@@ -3,8 +3,11 @@ package data
 import (
 	"fmt"
 	"log"
+	"math"
 	"regexp"
 	"wiki-parser/utilities"
+
+	"github.com/google/uuid"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -65,49 +68,110 @@ func getDbConnection(name string, pasword string) (*gorm.DB, error) {
 
 func (d *DbProvider) ParsePages() error {
 	for {
+		// get next batch
 		batch, err := utilities.StopWatch(d.logger, d.getNextPageIDsBatch, "")
 		if err != nil {
 			d.logger.Printf("ParsePages. Failed to read the batch: %v\n", err)
+			break
+		}
+		ids := mapIDsToInts(batch)
+
+		// read  text table
+		texts, err := utilities.StopWatchParametrized(d.logger, d.getTexts, ids, "getTexts")
+		if err != nil {
+			d.logger.Printf("ParsePages. Failed to read the texts: %v\n", err)
+			break
 		}
 
-		if len(batch.([]Page)) != 0 {
+		// write batch
+		_, err = utilities.StopWatchParametrized(d.logger, d.writeTexts, texts, "writeTexts")
+		if err != nil {
+			d.logger.Printf("ParsePages. Failed to write the texts: %v\n", err)
+			break
+		} else {
+			// mark pages as parsed
+			_, err := utilities.StopWatchParametrized(d.logger, d.markPagesAsParsed, ids, "markPagesAsParsed")
+			if err != nil {
+				d.logger.Printf("ParsePages. Failed to mark pages as parsed: %v\n", err)
+				break
+			}
+		}
+
+		if len(batch) == 0 {
 			break
 		}
 	}
 	return nil
 }
 
-func (d *DbProvider) getNextPageIDsBatch() (interface{}, error) {
+func (d *DbProvider) getNextPageIDsBatch() ([]Page, error) {
 	var pages []Page
 	err := d.connection.Where("parsed = 0").Limit(d.batchSize).Find(&pages).Error
 	if err != nil {
 		return nil, err
 	}
 
-	for _, page := range pages {
-		d.logger.Println(page.PageId, " - ", page.Parsed)
-	}
 	return pages, nil
 }
 
-func (d *DbProvider) writeData(tag *Text) {
-	r := regexp.MustCompile(`\|(\S+)\s((?:\S)+)\s=\s([^|}\\]+)`)
-	matches := r.FindAllStringSubmatch(tag.OldText, -1) // matches is [][]string
-	i := 14
-	for _, match := range matches {
-		if i == 0 {
-			break
-		}
-		fmt.Printf(
-			"%s, %s, %s\n", match[1], match[2], match[3])
-
-		odmiana := Odmiana{
-			PageId:    int(tag.OldId),
-			Przypadek: match[1],
-			Liczba:    match[2],
-			Text:      match[3],
-		}
-		d.connection.Create(&odmiana)
-		i--
+func (d *DbProvider) getTexts(ids []int) ([]Text, error) {
+	var texts []Text
+	err := d.connection.Where("old_id in (?)", ids).Find(&texts).Error
+	if err != nil {
+		return nil, err
 	}
+
+	return texts, nil
+}
+
+func (d *DbProvider) markPagesAsParsed(ids []int) ([]int, error) {
+	err := d.connection.Where("page_id in (?)", ids).Updates(Page{Parsed: ParseTypes(Parsed)}).Error
+	if err != nil {
+		return ids, err
+	}
+
+	return ids, nil
+}
+
+func mapIDsToInts(pages []Page) []int {
+	ids := make([]int, len(pages))
+	for i, obj := range pages {
+		ids[i] = int(obj.PageId)
+	}
+	return ids
+}
+
+func (d *DbProvider) writeTexts(texts []Text) ([]Odmiana, error) {
+	r := regexp.MustCompile(`\|(\S+)\s((?:\S)+)\s=\s([^|}\\]+)`)
+	var results []Odmiana
+	for _, text := range texts {
+		matches := r.FindAllStringSubmatch(text.OldText, -1) // matches is [][]string
+		i := 14
+		if len(matches) < 7 {
+			continue
+		}
+
+		for _, match := range matches {
+			if i == 0 {
+				continue
+			}
+
+			min := int(math.Min(float64(len(match[3])), 100))
+			odmiana := Odmiana{
+				Guid:      uuid.New().String(),
+				PageId:    int(text.OldId),
+				Przypadek: match[1],
+				Liczba:    match[2],
+				Text:      match[3][:min],
+			}
+			results = append(results, odmiana)
+			i--
+		}
+	}
+
+	err := d.connection.CreateInBatches(&results, len(results)).Error
+	if err != nil {
+		return results, err
+	}
+	return results, nil
 }

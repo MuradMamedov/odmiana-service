@@ -15,8 +15,9 @@ func (Text) TableName() string {
 }
 
 type Odmiana struct {
-	PageId    int    `gorm:"primaryKey;autoIncrement:false"`
-	Przypadek string `gorm:"primaryKey"`
+	Guid      string `gorm:"primaryKey"`
+	PageId    int
+	Przypadek string
 	Liczba    string
 	Text      string
 }
@@ -29,9 +30,9 @@ func (Odmiana) TableName() string {
 type ParseTypes uint8
 
 const (
-	NotParsed int = 0
-	Parsed    int = 1
-	Error     int = 2
+	NotParsed uint8 = 0
+	Parsed    uint8 = 1
+	Error     uint8 = 2
 )
 
 type Page struct {
